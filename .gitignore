@@ -1,0 +1,11 @@
+downloads/
+engines/
+tools/
+models/**
+!models/.gitkeep
+data/**
+!data/.gitkeep
+config.local.json
+node_modules/
+*.log
+__pycache__/

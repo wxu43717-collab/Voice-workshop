@@ -1,0 +1,15 @@
+import {test,after,before} from 'node:test';
+import assert from 'node:assert/strict';
+import {server,inside,root,resolveReference} from '../server.mjs';
+let base;
+before(async()=>{await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));base=`http://127.0.0.1:${server.address().port}`;});
+after(()=>new Promise(resolve=>server.close(resolve)));
+test('reject path traversal outside project',()=>{assert.throws(()=>inside(root,'../secret'));assert.ok(inside(root,'web/index.html').startsWith(root));});
+test('default reference allows text-only generation without a prompt transcript',()=>{const v={defaultReference:{audio:'models/gpt-sovits/takamatsu-tomori/reference.wav',prompt:'',language:'ja'}};const r=resolveReference(v,{prompt:'wrong text',referenceLanguage:'zh'});assert.equal(r.prompt,'');assert.equal(r.referenceLanguage,'ja');assert.ok(r.reference.endsWith('reference.wav'));});
+test('missing or escaping default reference is rejected',()=>{assert.throws(()=>resolveReference({},{}));assert.throws(()=>resolveReference({defaultReference:{audio:'../secret.wav',prompt:'text',language:'ja'}},{}));});
+test('state exposes readiness without leaking model filesystem paths',async()=>{const r=await fetch(base+'/api/state');assert.equal(r.status,200);const data=await r.json();assert.ok(data.voices.some(v=>v.id==='reference'));assert.equal(data.voices.some(v=>'weights'in v),false);});
+test('cross-origin mutations rejected',async()=>{const r=await fetch(base+'/api/voices',{method:'POST',headers:{Origin:'https://example.com'},body:'{}'});assert.equal(r.status,403);});
+test('executable uploads rejected',async()=>{const r=await fetch(base+'/api/upload?name=bad.exe',{method:'POST',body:'test'});assert.equal(r.status,400);});
+test('invalid voice cannot create a job',async()=>{const r=await fetch(base+'/api/jobs',{method:'POST',body:JSON.stringify({voiceId:'missing'})});assert.equal(r.status,400);});
+test('private config and engine files are not served',async()=>{for(const p of ['/config.local.json','/engines/rvc/webui.py'])assert.equal((await fetch(base+p)).status,404);});
+test('frontend is served with matching MIME type',async()=>{const r=await fetch(base+'/');assert.equal(r.status,200);assert.match(r.headers.get('content-type'),/text\/html/);assert.match(await r.text(),/文字配音/);});

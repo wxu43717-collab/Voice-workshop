@@ -1,0 +1,14 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {spawnSync} from 'node:child_process';
+const root=path.resolve(import.meta.dirname,'..');
+const html=fs.readFileSync(path.join(root,'downloads/tomori-community.html'),'utf8');
+const chunks=[...html.matchAll(/self\.__next_f\.push\((\[.*?\])\)<\/script>/gs)].map(m=>{try{return JSON.parse(m[1])[1]||'';}catch{return '';}}).join('');
+const match=chunks.match(/"reference_audio_url":"([^"]+)"/);
+if(!match)throw Error('Reference audio URL not found');
+const url=match[1];
+const dir=path.join(root,'models/gpt-sovits/takamatsu-tomori');
+console.log('Source:',url);
+const result=spawnSync('curl.exe',['-L','--fail','--retry','3','--connect-timeout','20','--max-time','180','-o',path.join(dir,'reference.wav'),encodeURI(url)],{stdio:'inherit',windowsHide:true});
+if(result.status!==0)throw Error('Reference download failed');
+fs.writeFileSync(path.join(dir,'reference-source.json'),JSON.stringify({page:'https://www.vofl.ai/models/336bd851-2b9f-4102-9d8a-ca8696f2e092',url,originalFilename:decodeURIComponent(url.split('/').pop()),transcriptVerified:false},null,2));
