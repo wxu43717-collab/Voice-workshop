@@ -4,6 +4,12 @@
 
 ## 打开
 
+桌面版：双击桌面的 **声间配音** 图标。它会自动启动本地后端，并以独立窗口打开工作台，支持文字配音、录音换声及音色训练。关闭窗口不会中断后台训练；关机后下次双击会重新启动服务。
+
+桌面 EXE 位于 `dist/desktop/VoiceWorkshop.exe`，运行时使用已有的模型、Python 环境和数据。请保留本项目目录；这是本机安装版，不是可以单独拷走的离线安装包。界面窗口需要电脑上安装的 Edge 或 Chrome。
+
+重新创建桌面版：在 PowerShell 7 中运行 `./scripts/install-desktop.ps1`。脚本复制本机 Node 运行程序、编译 Windows 启动器并创建桌面快捷方式。启动问题记录在 `data/logs/desktop-launcher.log` 和 `data/logs/desktop-server.log`。桌面浏览器数据保存在 `data/desktop-browser`。
+
 双击 `start.cmd`，浏览器访问 http://127.0.0.1:3270 。保持启动窗口打开。
 
 生成按钮依赖引擎安装状态；网页能打开并不代表模型已经安装成功。
