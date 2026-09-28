@@ -1,7 +1,10 @@
 import {test,after,before} from 'node:test';
 import assert from 'node:assert/strict';
-import {server,inside,root,resolveReference} from '../server.mjs';
+import {server,inside,root,resolveReference,setArchived} from '../server.mjs';
 let base;
+test('archive preserves generated audio and restore removes the archive marker',()=>{const job={id:'sample',status:'done',audio:'/outputs/sample.wav',request:{text:'hello'}};setArchived(job,true);assert.ok(job.deletedAt);assert.equal(job.audio,'/outputs/sample.wav');assert.equal(job.request.text,'hello');setArchived(job,false);assert.equal('deletedAt' in job,false);});
+test('in-progress work cannot be archived',()=>{for(const status of ['queued','running'])assert.throws(()=>setArchived({status},true));});
+test('unknown archive record returns 404',async()=>{assert.equal((await fetch(base+'/api/jobs/00000000-0000-0000-0000-000000000000',{method:'DELETE'})).status,404);});
 before(async()=>{await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));base=`http://127.0.0.1:${server.address().port}`;});
 after(()=>new Promise(resolve=>server.close(resolve)));
 test('reject path traversal outside project',()=>{assert.throws(()=>inside(root,'../secret'));assert.ok(inside(root,'web/index.html').startsWith(root));});

@@ -1,5 +1,6 @@
+import {setupStudio,renderStudio} from '/studio.js';
 const $=id=>document.getElementById(id);
-let mode='gpt-sovits',state={voices:[],jobs:[],engines:{}},source=null,reference=null,sourceUrl,toastTimer,lastJobs='',lastVoiceOptions='',submitting=false;
+let mode='gpt-sovits',state={voices:[],jobs:[],engines:{}},source=null,reference=null,sourceUrl,toastTimer,lastVoiceOptions='',submitting=false;
 function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,7000);}
 async function api(url,options){const r=await fetch(url,options);const data=await r.json();if(!r.ok)throw Error(data.error||'操作失败');return data;}
 function post(url,body){return api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});}
@@ -29,20 +30,13 @@ function render(){
  const current=$('voice').value;const list=state.voices.filter(v=>v.engine===mode);const optionsSignature=JSON.stringify([mode,list.map(v=>[v.id,v.name])]);
  if(optionsSignature!==lastVoiceOptions){lastVoiceOptions=optionsSignature;$('voice').replaceChildren();
   if(!list.length){const o=element('option','','请先导入 RVC 音色');o.value='';$('voice').append(o);}
-  for(const v of list){const o=element('option','',v.name);o.value=v.id;$('voice').append(o);}const preferred=[current,localStorage.getItem('voice-workshop-voice'),list.find(v=>v.hasDefaultReference)?.id].find(id=>list.some(v=>v.id===id));if(preferred)$('voice').value=preferred;
+  for(const v of list){const o=element('option','',v.name.replace(/\s*[·/]\s*GPT-SoVITS.*$/i,''));o.value=v.id;$('voice').append(o);}const preferred=[current,localStorage.getItem('voice-workshop-voice'),list.find(v=>v.hasDefaultReference)?.id].find(id=>list.some(v=>v.id===id));if(preferred)$('voice').value=preferred;
  }
  const ready=state.engines[mode]==='ready';$('engine-note').textContent=ready?'本地生成 · 文件保存在此电脑':'引擎准备中 · 下载完成并安装后可用';$('generate').disabled=submitting||!ready||!list.length;
  $('generate').firstChild.textContent=mode==='rvc'?'转换声音 ':'生成配音 ';
  $('voice-list').replaceChildren();for(const v of state.voices){const row=element('div','voice-row');row.append(element('span','',v.name),element('span','',v.engine==='rvc'?'RVC / 换声':`${v.version} / 配音`));$('voice-list').append(row);}
- const signature=JSON.stringify(state.jobs);if(signature!==lastJobs){lastJobs=signature;renderJobs();}
  updateReference();
-}
-function renderJobs(){
- $('job-count').textContent=String(state.jobs.length).padStart(2,'0');$('jobs').replaceChildren();if(!state.jobs.length){$('jobs').append(element('p','empty','还没有作品。你的第一段声音，即将从这里开始。'));return;}
- const status={queued:'等待生成',running:'正在生成…',failed:'生成未完成',done:'已完成'};
- state.jobs.forEach((j,i)=>{const row=element('article','job');row.append(element('span','job-index',String(state.jobs.length-i).padStart(2,'0')));const info=element('div');info.style.minWidth='0';info.append(element('p','job-title',j.title),element('p','job-meta',`${j.voiceName} · ${new Date(j.createdAt).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}`));row.append(info);
- if(j.status==='done'){const audio=element('audio');audio.controls=true;audio.preload='none';audio.src=j.audio;audio.setAttribute('aria-label',j.title);const a=element('a','','下载 ↓');a.href=j.audio;a.download=`声间-${j.id.slice(0,8)}.wav`;row.append(audio,a);}else{row.append(element('span','job-status',status[j.status]));if(j.status==='failed'){const a=element('a','','查看日志');a.href=`/logs/${j.id}.log`;a.target='_blank';a.rel='noopener';row.append(a,element('p','job-error',j.error));}}
- $('jobs').append(row);});
+ renderStudio(state);
 }
 async function refresh(){try{state=await api('/api/state');render();}catch(e){$('engine-note').textContent='工作空间连接中断，请检查启动窗口';}}
 function setMode(next){mode=next;$('mode-tts').setAttribute('aria-selected',next==='gpt-sovits');$('mode-rvc').setAttribute('aria-selected',next==='rvc');$('text-editor').hidden=next==='rvc';$('audio-editor').hidden=next!=='rvc';$('tts-options').hidden=next==='rvc';$('rvc-options').hidden=next!=='rvc';render();}
@@ -59,4 +53,5 @@ $('generate').onclick=async()=>{const b=$('generate');submitting=true;b.disabled
 function openLibrary(){$('library').showModal();}$('library-open').onclick=openLibrary;$('library-close').onclick=()=>$('library').close();$('import-shortcut').onclick=()=>{$('import-engine').value=mode;importType();openLibrary();};
 function importType(){const r=$('import-engine').value==='rvc';$('gpt-file-field').hidden=r;$('import-gpt').required=!r;$('index-file-field').hidden=!r;$('version-field').hidden=r;}$('import-engine').onchange=importType;
 $('import-form').onsubmit=async e=>{e.preventDefault();const b=$('import-submit');b.disabled=true;try{toast('正在导入音色文件，请稍候…');const engine=$('import-engine').value,payload={engine,name:$('import-name').value,version:$('import-version').value,weights:(await upload($('import-weights').files[0])).id};if(engine==='gpt-sovits')payload.gpt=(await upload($('import-gpt').files[0])).id;else if($('import-index').files[0])payload.index=(await upload($('import-index').files[0])).id;const result=await post('/api/voices',payload);e.target.reset();importType();await refresh();setMode(engine);$('voice').value=result.id;$('library').close();toast('音色已加入，生成时将校验模型兼容性');}catch(e){toast(e.message);}finally{b.disabled=false;}};
+setupStudio({api,refresh,toast});
 await refresh();setInterval(refresh,5000);

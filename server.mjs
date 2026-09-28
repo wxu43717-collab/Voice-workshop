@@ -18,6 +18,11 @@ function voices(){const list=[{id:'reference',name:'参考音频克隆',engine:'
 const jobs=fs.readdirSync(path.join(root,'data/jobs')).filter(x=>x.endsWith('.json')).map(x=>read(path.join(root,'data/jobs',x),null)).filter(Boolean).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
 function saveJob(j){write(path.join(root,'data/jobs',j.id+'.json'),j);}
 function publicJob(j){const {request,...rest}=j;return rest;}
+export function setArchived(job,archived){
+ if(['queued','running'].includes(job.status))throw Error('生成结束后才可以删除记录');
+ if(archived)job.deletedAt=new Date().toISOString();else delete job.deletedAt;
+ return job;
+}
 function uploaded(id,allowed){if(!/^[0-9a-f-]{36}\.[a-z0-9]+$/.test(id||''))throw Error('请先选择文件');const p=inside(path.join(root,'data/uploads'),id);if(!allowed.includes(path.extname(p).toLowerCase())||!fs.existsSync(p))throw Error('文件类型不匹配或文件不存在');return p;}
 const audioExt=['.wav','.mp3','.flac','.m4a','.ogg','.webm'];
 export function resolveReference(v,b){
@@ -60,7 +65,14 @@ export const server=http.createServer(async(req,res)=>{
   const host=req.headers.host||'';if(!/^127\.0\.0\.1:\d+$/.test(host)&&!/^localhost:\d+$/.test(host)){send(res,403,{error:'仅支持本机访问'});return;}
   if(req.headers.origin&& ![`http://${host}`].includes(req.headers.origin)){send(res,403,{error:'来源不匹配'});return;}
   const url=new URL(req.url,`http://${host}`),p=url.pathname;
-  if(req.method==='GET'&&p==='/api/state'){send(res,200,{engines:{rvc:engineState('rvc'),'gpt-sovits':engineState('gpt-sovits')},voices:voices().map(({weights,gpt,index,defaultReference,...v})=>({...v,hasDefaultReference:!!defaultReference?.audio})),jobs:jobs.map(publicJob).reverse()});return;}
+  if(req.method==='GET'&&p==='/api/state'){send(res,200,{engines:{rvc:engineState('rvc'),'gpt-sovits':engineState('gpt-sovits')},voices:voices().map(({weights,gpt,index,defaultReference,...v})=>({...v,hasDefaultReference:!!defaultReference?.audio})),jobs:jobs.filter(j=>!j.deletedAt).map(publicJob).reverse(),archivedJobs:jobs.filter(j=>j.deletedAt).map(publicJob).reverse()});return;}
+  const archiveRoute=/^\/api\/jobs\/([0-9a-f-]{36})(\/restore)?$/.exec(p);
+  if(archiveRoute&&((req.method==='DELETE'&&!archiveRoute[2])||(req.method==='POST'&&archiveRoute[2]))){
+   const job=jobs.find(j=>j.id===archiveRoute[1]);
+   if(!job){send(res,404,{error:'记录不存在'});return;}
+   if(['queued','running'].includes(job.status)){send(res,409,{error:'生成结束后才可以删除记录'});return;}
+   setArchived(job,!archiveRoute[2]);saveJob(job);send(res,200,{ok:true});return;
+  }
   if(req.method==='POST'&&p==='/api/upload'){
    const name=url.searchParams.get('name')||'',ext=path.extname(name).toLowerCase();
    if(![...audioExt,'.pth','.ckpt','.index'].includes(ext))throw Error('请选择音频或音色模型文件');
@@ -96,7 +108,7 @@ export const server=http.createServer(async(req,res)=>{
   }
   if(req.method==='GET'&&/^\/outputs\/[\w-]+\.wav$/.test(p)){serveFile(req,res,inside(path.join(root,'data/outputs'),path.basename(p)));return;}
   if(req.method==='GET'&&/^\/logs\/[\w-]+\.log$/.test(p)){serveFile(req,res,inside(path.join(root,'data/logs'),path.basename(p)));return;}
-  if(req.method==='GET'&&['/','/app.js','/style.css'].includes(p)){serveFile(req,res,path.join(root,'web',p==='/'?'index.html':p.slice(1)));return;}
+  if(req.method==='GET'&&['/','/app.js','/style.css','/studio.js','/studio.css'].includes(p)){serveFile(req,res,path.join(root,'web',p==='/'?'index.html':p.slice(1)));return;}
   send(res,404,{error:'未找到页面'});
  }catch(e){if(!res.headersSent)send(res,400,{error:e.message});else res.end();}
 });
