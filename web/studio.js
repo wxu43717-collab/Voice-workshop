@@ -15,6 +15,7 @@ function confirmDelete(job){
 const time=n=>{n=Math.max(0,Number(n)||0);return Math.floor(n/60)+':'+String(Math.floor(n%60)).padStart(2,'0');};
 export function setupStudio(callbacks){
  hooks=callbacks;
+ const trainLink=make('a','text-button','训练音色 ↗');trainLink.href='/train';trainLink.id='train-open';document.querySelector('header').insertBefore(trainLink,$('library-open'));
  const confirmation=make('dialog');confirmation.id='delete-confirm';confirmation.setAttribute('aria-labelledby','delete-heading');
  confirmation.innerHTML='<form method="dialog"><p class="eyebrow">REMOVE RECORDING</p><h2 id="delete-heading">确定删除？</h2><p id="delete-title"></p><p class="muted">记录会移入回收站，音频文件保留，之后可以恢复。</p><div class="confirm-actions"><button value="cancel" autofocus>取消</button><button value="delete" class="confirm-danger">确定删除</button></div></form>';document.body.append(confirmation);
  const community=make('dialog');community.id='community';community.setAttribute('aria-labelledby','community-heading');

@@ -6,6 +6,7 @@ import {randomUUID} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {pipeline} from 'node:stream/promises';
 import {Transform} from 'node:stream';
+import {createTrainingController,validateTraining} from './training.mjs';
 
 export const root=path.dirname(fileURLToPath(import.meta.url));
 for(const d of ['data/uploads','data/outputs','data/jobs','data/logs','models/rvc','models/gpt-sovits'])fs.mkdirSync(path.join(root,d),{recursive:true});
@@ -34,8 +35,13 @@ export function resolveReference(v,b){
  return {reference,prompt:d.prompt||'',referenceLanguage:d.language||'ja'};
 }
 let running=false,activeChild;
+const training=createTrainingController({root,jobs,config,inside,uploaded,audioExt,saveJob});
 async function processQueue(){
- if(running)return;const job=jobs.find(j=>j.status==='queued');if(!job)return;running=true;job.status='running';saveJob(job);
+ if(running)return;const job=jobs.find(j=>j.status==='queued');if(!job)return;running=true;job.status='running';job.startedAt=new Date().toISOString();saveJob(job);
+ if(job.kind==='training'){
+  try{await training.run(job);}catch(e){if(job.status!=='cancelled'){job.status='failed';job.error=e.message;job.message=e.message;}}
+  finally{job.finishedAt=new Date().toISOString();saveJob(job);running=false;setImmediate(processQueue);}return;
+ }
  try{
   const c=config()[job.engine];if(!c||engineState(job.engine)!=='ready')throw Error('引擎尚未安装完成');
   const v=voices().find(v=>v.id===job.request.voiceId);if(!v)throw Error('音色已不存在');
@@ -65,7 +71,20 @@ export const server=http.createServer(async(req,res)=>{
   const host=req.headers.host||'';if(!/^127\.0\.0\.1:\d+$/.test(host)&&!/^localhost:\d+$/.test(host)){send(res,403,{error:'仅支持本机访问'});return;}
   if(req.headers.origin&& ![`http://${host}`].includes(req.headers.origin)){send(res,403,{error:'来源不匹配'});return;}
   const url=new URL(req.url,`http://${host}`),p=url.pathname;
-  if(req.method==='GET'&&p==='/api/state'){send(res,200,{engines:{rvc:engineState('rvc'),'gpt-sovits':engineState('gpt-sovits')},voices:voices().map(({weights,gpt,index,defaultReference,...v})=>({...v,hasDefaultReference:!!defaultReference?.audio})),jobs:jobs.filter(j=>!j.deletedAt).map(publicJob).reverse(),archivedJobs:jobs.filter(j=>j.deletedAt).map(publicJob).reverse()});return;}
+  if(req.method==='GET'&&p==='/api/state'){send(res,200,{engines:{rvc:engineState('rvc'),'gpt-sovits':engineState('gpt-sovits')},voices:voices().map(({weights,gpt,index,defaultReference,...v})=>({...v,hasDefaultReference:!!defaultReference?.audio})),jobs:jobs.filter(j=>j.kind!=='training'&&!j.deletedAt).map(publicJob).reverse(),archivedJobs:jobs.filter(j=>j.kind!=='training'&&j.deletedAt).map(publicJob).reverse()});return;}
+  if(req.method==='GET'&&p==='/api/trainings'){send(res,200,{...training.readiness(),jobs:jobs.filter(j=>j.kind==='training').map(publicJob).reverse(),busy:jobs.some(j=>['running','cancelling'].includes(j.status))});return;}
+  if(req.method==='POST'&&p==='/api/trainings'){
+   const availability=training.readiness();if(!availability.ready)throw Error(availability.error);
+   if(jobs.filter(j=>j.kind==='training'&&['queued','running','cancelling'].includes(j.status)).length>=3)throw Error('最多同时保留 3 个待训练任务');
+   const request=validateTraining(await jsonBody(req),id=>uploaded(id,audioExt));
+   const job={id:randomUUID(),kind:'training',engine:'gpt-sovits',voiceName:request.name,title:request.name,request,status:'queued',stage:'queued',message:'等待显卡空闲',createdAt:new Date().toISOString()};
+   jobs.push(job);saveJob(job);send(res,202,publicJob(job));setImmediate(processQueue);return;
+  }
+  const trainRoute=/^\/api\/trainings\/([0-9a-f-]{36})\/(cancel|zip|pth|ckpt)$/.exec(p);
+  if(trainRoute){const job=jobs.find(j=>j.id===trainRoute[1]&&j.kind==='training');if(!job){send(res,404,{error:'训练任务不存在'});return;}
+   if(req.method==='POST'&&trainRoute[2]==='cancel'){training.cancel(job);send(res,200,{ok:true});return;}
+   if(req.method==='GET'&&trainRoute[2]!=='cancel'){const file=training.download(job,trainRoute[2]);res.setHeader('Content-Disposition',`attachment; filename="voice-${job.id.slice(0,8)}.${trainRoute[2]}"`);serveFile(req,res,file);return;}
+  }
   const archiveRoute=/^\/api\/jobs\/([0-9a-f-]{36})(\/restore)?$/.exec(p);
   if(archiveRoute&&((req.method==='DELETE'&&!archiveRoute[2])||(req.method==='POST'&&archiveRoute[2]))){
    const job=jobs.find(j=>j.id===archiveRoute[1]);
@@ -108,13 +127,13 @@ export const server=http.createServer(async(req,res)=>{
   }
   if(req.method==='GET'&&/^\/outputs\/[\w-]+\.wav$/.test(p)){serveFile(req,res,inside(path.join(root,'data/outputs'),path.basename(p)));return;}
   if(req.method==='GET'&&/^\/logs\/[\w-]+\.log$/.test(p)){serveFile(req,res,inside(path.join(root,'data/logs'),path.basename(p)));return;}
-  if(req.method==='GET'&&['/','/app.js','/style.css','/studio.js','/studio.css'].includes(p)){serveFile(req,res,path.join(root,'web',p==='/'?'index.html':p.slice(1)));return;}
+  if(req.method==='GET'&&['/','/train','/app.js','/style.css','/studio.js','/studio.css','/train.js','/train.css'].includes(p)){serveFile(req,res,path.join(root,'web',p==='/'?'index.html':p==='/train'?'train.html':p.slice(1)));return;}
   send(res,404,{error:'未找到页面'});
  }catch(e){if(!res.headersSent)send(res,400,{error:e.message});else res.end();}
 });
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
- for(const j of jobs)if(['queued','running'].includes(j.status)){j.status='failed';j.error='服务已重启，请重新生成';saveJob(j);}
+ for(const j of jobs)if(['queued','running','cancelling'].includes(j.status)){j.status='failed';j.error='服务已重启，请重新提交';j.message=j.error;saveJob(j);}
  const port=Number(process.env.PORT||3270);server.listen(port,'127.0.0.1',()=>{console.log(`Voice Workshop: http://127.0.0.1:${port}`);if(process.argv.includes('--open')&&process.platform==='win32')spawn('cmd.exe',['/c','start','',`http://127.0.0.1:${port}`],{windowsHide:true});});
  server.on('error',e=>{console.error(e.code==='EADDRINUSE'?`端口 ${port} 已使用。工作台可能已启动，请打开 http://127.0.0.1:${port}`:e.message);process.exitCode=1;});
- for(const sig of ['SIGINT','SIGTERM'])process.on(sig,()=>{activeChild?.kill();server.close();process.exit(0);});
+ for(const sig of ['SIGINT','SIGTERM'])process.on(sig,()=>{activeChild?.kill();training.stop();server.close();process.exit(0);});
 }
