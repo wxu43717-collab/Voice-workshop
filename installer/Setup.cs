@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-public class Asset { public string name; public long bytes; public string sha256; }
+public class Asset { public string name, url; public long bytes; public string sha256; }
 public class Package { public string id, name, file, sha256, target, format; public long bytes; public Asset[] parts; }
 public class Release { public string version; public Package[] packages; }
 
@@ -48,6 +48,13 @@ public static class Install
             return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
     }
     public static bool Verified(string file, long bytes, string sha) { return File.Exists(file) && new FileInfo(file).Length == bytes && Hash(file) == sha; }
+    public static string AssetUrl(string source, Asset asset)
+    {
+        if (String.IsNullOrEmpty(asset.url)) return source + Uri.EscapeDataString(asset.name);
+        var url = new Uri(asset.url);
+        if (url.Scheme != "https" || url.Host != "huggingface.co") throw new IOException("模型下载地址必须来自官方 Hugging Face。");
+        return asset.url;
+    }
     public static void Download(string url, string path, Asset asset, Action<string, int> report, CancellationToken cancel)
     {
         if (Verified(path, asset.bytes, asset.sha256)) return;
@@ -92,7 +99,7 @@ public static class Install
             }
             catch (Exception e) { cancel.ThrowIfCancellationRequested(); last = e; report("下载中断，正在重试：" + asset.name, 0); if (cancel.WaitHandle.WaitOne(1000)) cancel.ThrowIfCancellationRequested(); }
         }
-        throw new IOException("无法下载 " + asset.name + "。请检查网络和 Release 附件是否上传完整。下次安装会继续下载。", last);
+        throw new IOException("无法下载 " + asset.name + "。请检查 GitHub / Hugging Face 的网络连接。下次安装会继续下载。", last);
     }
     public static void Unzip(string file, string destination, CancellationToken cancel)
     {
@@ -141,7 +148,7 @@ public static class Install
             report("检查 NVIDIA 显卡驱动", -1);
             Run("nvidia-smi.exe", "-L", root, report, cancel);
             var manifest = Manifest();
-            var selected = manifest.packages.Where(p => p.id != "rvc" || rvc).Where(p => p.id != "asr" || training).ToArray();
+            var selected = manifest.packages.Where(p => p.id != "rvc" || rvc).Where(p => !p.id.StartsWith("asr") || training).ToArray();
             var cache = Path.Combine(root, ".installer-cache"); Directory.CreateDirectory(cache);
             foreach (var package in selected)
             {
@@ -149,7 +156,7 @@ public static class Install
                 var archive = Path.Combine(cache, package.file);
                 if (!Verified(archive, package.bytes, package.sha256))
                 {
-                    foreach (var part in package.parts) Download(source + Uri.EscapeDataString(part.name), Path.Combine(cache, part.name), part, report, cancel);
+                    foreach (var part in package.parts) Download(AssetUrl(source, part), Path.Combine(cache, part.name), part, report, cancel);
                     if (package.parts.Length == 1 && package.parts[0].name == package.file) { }
                     else
                     {
@@ -164,10 +171,11 @@ public static class Install
                         File.Move(archive + ".joining", archive);
                     }
                 }
-                report("正在解压 " + package.name + "，这可能需要几分钟", -1);
+                report("正在安装 " + package.name + "，这可能需要几分钟", -1);
                 var destination = Path.Combine(root, package.target);
                 Directory.CreateDirectory(destination);
-                if (package.format == "zip") Unzip(archive, destination, cancel);
+                if (package.format == "file") File.Copy(archive, Path.Combine(destination, package.file), true);
+                else if (package.format == "zip") Unzip(archive, destination, cancel);
                 else Run(Path.Combine(root, "tools", "7zr.exe"), "x \"" + archive + "\" -o\"" + destination + "\" -y -bsp0 -bso0", root, report, cancel);
                 if (package.id == "gpt-sovits" || package.id == "rvc")
                 {
@@ -218,7 +226,7 @@ public class SetupWindow : Form
         LabelAt("把声音工作台，装进你的电脑。", 65, 23, Color.FromArgb(28,32,38));
         LabelAt("首次下载，之后本地运行。无需另装 Node.js 或 Python。", 118, 10, Color.DimGray);
         LabelAt("GitHub 仓库或版本页面", 168, 10, Color.DimGray);
-        source.SetBounds(38, 201, 632, 30); source.Text = ""; Controls.Add(source);
+        source.SetBounds(38, 201, 632, 30); source.Text = "https://github.com/wxu43717-collab/Voice-workshop"; Controls.Add(source);
         LabelAt("安装位置 · 请选择空文件夹，建议预留 100 GB", 246, 10, Color.DimGray);
         folder.SetBounds(38, 279, 540, 30); folder.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VoiceWorkshop"); Controls.Add(folder);
         browse.Text = "选择…"; browse.SetBounds(588, 275, 82, 36); browse.Click += (s,e) => { using (var dialog = new FolderBrowserDialog()) { if (dialog.ShowDialog() == DialogResult.OK) folder.Text = Path.Combine(dialog.SelectedPath, "VoiceWorkshop"); } }; Controls.Add(browse);
@@ -229,7 +237,7 @@ public class SetupWindow : Form
         progress.SetBounds(38,484,632,8); Controls.Add(progress);
         start.Text = "下载并安装 →"; start.SetBounds(38,515,452,48); start.BackColor = Color.FromArgb(35,42,51); start.ForeColor = Color.White; start.FlatStyle = FlatStyle.Flat; start.Click += Start; Controls.Add(start);
         stop.Text = "暂停安装"; stop.Enabled = false; stop.SetBounds(510,515,160,48); stop.Click += (s,e) => { cancellation.Cancel(); stop.Enabled = false; status.Text = "正在停止；已下载的内容会保留。"; }; Controls.Add(stop);
-        LabelAt("不包含社区角色音色。安装后可自行导入或训练。", 578, 9, Color.DimGray);
+        LabelAt("程序来自 GitHub，模型来自官方 Hugging Face。安装后可自行导入音色。", 578, 9, Color.DimGray);
         FormClosing += (s,e) => { if (busy) { e.Cancel = true; cancellation.Cancel(); status.Text = "正在停止安装，请稍后关闭。"; } };
     }
     void Report(string text, int percent)

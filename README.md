@@ -4,9 +4,10 @@ Windows 本地配音工作台，复用 GPT-SoVITS 与 RVC 官方引擎。支持�
 
 ## 下载安装
 
-在本仓库的 **Releases** 下载 `VoiceWorkshop-Setup.exe`，打开后粘贴该 Release 页面地址，
+在本仓库的 **Releases** 下载 `VoiceWorkshop-Setup.exe`，打开后使用已填写的仓库地址，
 选择安装目录，点击「下载并安装」。安装器会下载基础模型和独立运行环境，支持断点续传及 SHA-256 校验。
 不需要自己安装 Node.js 或 Python，也不依赖发布者的电脑在线。
+工作台程序从 GitHub 下载；大型模型和引擎包直接从官方 Hugging Face 下载，不在本仓库重复托管。
 
 当前是 Windows 10/11 x64 + NVIDIA RTX 50 系预览版。完整资源约 17 GB，安装时预留 100 GB；
 需要有效 NVIDIA 驱动和 Edge 或 Chrome。安装后从桌面「声间配音」启动，可离线使用。

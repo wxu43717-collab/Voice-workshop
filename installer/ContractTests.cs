@@ -14,6 +14,10 @@ public static class ContractTests
         if (Install.Source("https://github.com/sample/voice/releases/tag/v1") != "https://github.com/sample/voice/releases/download/v1/") throw new Exception("Release URL failed");
         ExpectFailure(() => Install.Source("https://example.com/sample/voice"));
         ExpectFailure(() => Install.Source("https://github.com/sample/voice?bad=true"));
+        var upstream = new Asset { name = "model.bin", url = "https://huggingface.co/Systran/faster-whisper-small/resolve/main/model.bin" };
+        if (Install.AssetUrl("https://github.com/sample/voice/", upstream) != upstream.url) throw new Exception("Official source routing failed");
+        if (Install.AssetUrl("https://github.com/sample/voice/", new Asset { name = "app.zip" }) != "https://github.com/sample/voice/app.zip") throw new Exception("Application source routing failed");
+        ExpectFailure(() => Install.AssetUrl("https://github.com/sample/voice/", new Asset { url = "https://example.com/model.bin" }));
         var occupied = Path.Combine(root, "occupied"); Directory.CreateDirectory(occupied); File.WriteAllText(Path.Combine(occupied, "mine.txt"), "keep");
         ExpectFailure(() => Install.CheckRoot(occupied));
         var zipPath = Path.Combine(root, "unsafe.zip");

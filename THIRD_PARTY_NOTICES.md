@@ -2,8 +2,10 @@
 
 The MIT license in this repository covers Voice Workshop's own code only.
 Downloaded engine bundles, pretrained models and dependencies keep their own
-licenses. Original engine archives are distributed unchanged, with their
-included notices. A top-level MIT license does not relicense every dependency
+licenses. The installer downloads original engine archives directly from their
+official Hugging Face repositories, keeping their included notices. GitHub
+Release assets contain the application, not mirrored models or engine archives.
+A top-level MIT license does not relicense every dependency
 inside an engine bundle.
 
 | Component | Upstream / source | Notice |

@@ -121,6 +121,9 @@ def main():
             raise RuntimeError("Invalid release filename")
         checksum[name] = digest
     checksum["SHA256SUMS.txt"] = hashlib.sha256((FOLDER / "SHA256SUMS.txt").read_bytes()).hexdigest()
+    allowed = {"VoiceWorkshop-Setup.exe", "voice-workshop-source.zip", "voice-workshop-app.zip", "release-manifest.json", "SHA256SUMS.txt"}
+    if set(checksum) != allowed:
+        raise RuntimeError("Only application release files may be uploaded; models must use official download URLs")
     files = [FOLDER / name for name in checksum]
     for file in files:
         if not file.is_file() or file.stat().st_size >= 2 * 1024**3:
@@ -141,10 +144,15 @@ def main():
     release = next((r for r in releases if r["tag_name"] == VERSION), None)
     if not release:
         release = api("POST", "/releases", json=dict(tag_name=VERSION,
-            target_commitish="b49a3c9a3fbe7e09c0c9dd9a821cee9e66302180",
+            target_commitish="main",
             name="声间 v0.1.0 Preview · Windows NVIDIA", draft=True, prerelease=True,
             body=(FOLDER / "RELEASE_NOTES.md").read_text(encoding="utf-8")))
     print("RELEASE", release["html_url"], "draft=" + str(release["draft"]), flush=True)
+    if release["draft"]:
+        for old in api("GET", "/releases/%s/assets?per_page=100" % release["id"]):
+            if old["name"].endswith(tuple(".7z.%03d" % i for i in range(1, 6))) or old["name"] == "voice-workshop-asr.zip":
+                api("DELETE", "/releases/assets/%s" % old["id"])
+                print("REMOVED redundant model asset", old["name"], flush=True)
     save_status(release, "uploading")
     try:
         # Small essential files first, then at most three large streams concurrently.
@@ -163,7 +171,7 @@ def main():
             if not matches(remote.get(file.name, {}), file, checksum[file.name]):
                 raise RuntimeError("Incomplete release attachment: " + file.name)
         if release["draft"]:
-            release = api("PATCH", "/releases/%s" % release["id"], json=dict(draft=False))
+            release = api("PATCH", "/releases/%s" % release["id"], json=dict(draft=False, target_commitish="main", body=(FOLDER / "RELEASE_NOTES.md").read_text(encoding="utf-8")))
         save_status(release, "published")
         print("PUBLISHED", release["html_url"], flush=True)
     except Exception:
